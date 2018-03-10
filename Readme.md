@@ -1,4 +1,4 @@
-#Group Membership Management for Distributed Systems
+# Group Membership Management for Distributed Systems
 
 A group membership management service that provides the (remaining) members of 
 a group with a consistent view of its membership at any time and that tolerates 
