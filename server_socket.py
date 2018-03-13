@@ -6,14 +6,17 @@ Created on Sat Mar 10 18:58:52 2018
 @author: amit
 """
 import socket 
+import threading
 
-class ServerSocket:
+class ServerSocket(threading.Thread):
     
     server_socket = None
     host = None
     
     def __init__(self, port):
-        print("Some placeholder for init")
+        threading.Thread.__init__(self)
+        
+        print("Instantiating server socket on port "+str(port)+" ...")
         host = '127.0.0.1'
         
         # Create a server socket
@@ -26,8 +29,10 @@ class ServerSocket:
         self.server_socket.listen(5)
         
         # initiate listening
+        # self.initiateListening()
+    
+    def run(self):
         self.initiateListening()
-        
         
     def initiateListening(self):
          while True:
@@ -35,9 +40,8 @@ class ServerSocket:
            clientsocket,addr = self.server_socket.accept()      
         
            print("Got a connection from %s" % str(addr))
-            
-           msg = 'Thank you for connecting'+ "\r\n"
+           print(clientsocket.recv(4096))
+           msg = 'Hello from the other side!'+ "\r\n"
            clientsocket.send(msg.encode('ascii'))
            clientsocket.close()
 
-s = ServerSocket(10000)
