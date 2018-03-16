@@ -18,11 +18,21 @@ class ClientSocket:
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     
-    def sendMessage(self, port, message, ip = "127.0.0.1"):        
-        self.client_socket.connect((ip, port))
+    def sendMessage(self, port, message, ip = "127.0.0.1"):
+        try:        
+            self.client_socket.connect((ip, port))
+            self.client_socket.send(message)
+            print("REQUEST: {}".format(message))
+            
+        except socket.error:
+            print("ERROR: Exception thrown while sending message to "+ip+":"+str(port))
+            
+    
+    def recvMessage(self, bytesize):
+        recvd_message = self.client_socket.recv(bytesize)
+        print("RESPONSE: {}".format(recvd_message))
+        return recvd_message
         
-        self.client_socket.send(message)
-        recvd_message = self.client_socket.recv(4096)
-        print(recvd_message)
         
+    def close(self):
         self.client_socket.close()
