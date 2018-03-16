@@ -16,3 +16,8 @@ def insertIfNotPresent(collection, doc):
        doc = collection.insert_one(doc) 
        
     return doc
+
+
+
+def getKey():
+    return "SOME_KEY"

@@ -6,10 +6,12 @@ Created on Sat Mar 10 18:58:52 2018
 @author: amit
 """
 import constants
+import model
+import utils
+
 import socket 
 import threading
 import json
-import model
 import traceback
 
 class ServerSocket(threading.Thread):
@@ -57,30 +59,44 @@ class ServerSocket(threading.Thread):
                
                 # Check if invalid message received
                 if topic not in constants.topic:
-                    clientsocket.send("Invalid message! This incident will be reported.\n\r"
-                                     .encode('ascii'))
-                    
+                    clientsocket.send(json.dumps({'topic':"Invalid message! "
+                                                  +"This incident will be reported."})
+                    .encode('utf-8'))
+                
+                elif topic == 'PING':
+                   clientsocket.send(json.dumps({'topic':'PONG'}).encode('utf-8'))
                    
                 elif topic == 'JOIN_REQUEST':
+                    client_addr = recvd_msg['address']
+                     
                     # If not server then return Address of server
                     
                     # else if server then add this to list of known addresses
                     # addresses and return membership view
+                    
+                    key = utils.getKey();
                     doc = self.collection.find_one()
 
                     
                     # if view of membership is already created
                     if doc is not None and 'viewOfMembership' in doc:
-                        doc['viewOfMembership'].append({'address':addr, 'isMember':True})
+                        # search for a client with port in the local db
+                        temp_doc = self.collection.find_one({"viewOfMembership": {"address":client_addr}})
+                        
+                        # If document already present then delete doc
+                        if temp_doc is not None:
+                            self.collection.delete_one({'_id':temp_doc['_id']})
+                            
+                        doc['viewOfMembership'].append({'address':client_addr, 'isMember':True, 'key':key})
                         doc = self.collection.update({'_id':doc['_id']}, doc)
                     else:
                         # create new document
                         doc = {}
-                        doc['viewOfMembership'] = [{'address':addr, 'isMember':True}]
+                        doc['viewOfMembership'] = [{'address':client_addr, 'isMember':True, 'key':key}]
                         doc = self.collection.insert_one(doc)
                     
                     # send a key
-                    clientsocket.send((json.dumps({"topic":'APPROVED', "key":"This is some key"}))
+                    clientsocket.send((json.dumps({"topic":'APPROVED', "key":key}))
                     .encode('utf-8'))
                     
                 # check type of message received and perform corressponding action

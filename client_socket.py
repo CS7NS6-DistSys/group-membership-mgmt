@@ -23,14 +23,16 @@ class ClientSocket:
             self.client_socket.connect((ip, port))
             self.client_socket.send(message)
             print("REQUEST: {}".format(message))
+            return True
             
         except socket.error:
             print("ERROR: Exception thrown while sending message to "+ip+":"+str(port))
+            return False
             
     
     def recvMessage(self, bytesize):
         recvd_message = self.client_socket.recv(bytesize)
-        print("RESPONSE: {}".format(recvd_message))
+        print("RESPONSE: {} \n\n".format(recvd_message))
         return recvd_message
         
         

@@ -14,10 +14,10 @@ The process id of each process is the port number itself.
 """
 
 import argparse
-import time
 import json
 import traceback
 import sys
+import time
 
 import server_socket
 import client_socket
@@ -58,19 +58,21 @@ if not args.isCoordinator:
 
     try:
         # initiate join request
-        join_req_msg = json.dumps({'topic':'JOIN_REQUEST'})
+        join_req_msg = json.dumps({'topic':'JOIN_REQUEST', 'address':args.port})
         client = client_socket.ClientSocket()
         client.sendMessage(port = args.coordinatorPort , message = join_req_msg.encode('utf-8'));
-        print("Request to master sent: {}".format(join_req_msg))
+#        print("Request to master sent: {}".format(join_req_msg))
         join_req_resp = json.loads(client.recvMessage(4096))
-        print("Response from master: {}".format(join_req_resp))
+#        print("Response from master: {}".format(join_req_resp))
         
         # If join request approved
         if(join_req_resp['topic'] == "APPROVED"):
             collection = dbConn.getCollection("process_"+str(args.port))
             doc = collection.find_one();
+            if doc is None:
+                doc = {}
             doc['key'] = join_req_resp['key']
-#            collection.insert_one(insertDoc)
+            
             utils.insertIfNotPresent(collection, doc)
         else:
             print("Group join request declined by master. Suiciding. Bye!")
@@ -90,21 +92,44 @@ if not args.isCoordinator:
     client = client_socket.ClientSocket()
     client.sendMessage(port = args.coordinatorPort ,message = mem_view_msg.encode('utf-8'));
     view_of_membership = client.recvMessage(4096)
+    view_of_membership = json.loads(view_of_membership)
     
     # insert the view of membership in the database
     doc = collection.find_one()
-    doc['viewOfMembership'] = view_of_membership
+    doc['viewOfMembership'] = view_of_membership['viewOfMembership']
     utils.insertIfNotPresent(collection, doc)
-#    collection.insert_one(doc)
     client.close()
     
+    
     while True:
-        client = client_socket.ClientSocket()
-        client.sendMessage(port = args.coordinatorPort ,message = mem_view_msg.encode('utf-8'));
-        view_of_membership = client.recvMessage(4096)
-        client.close()
-        time.sleep(5)
+        j = 0
+        doc = collection.find_one()
+        
+        # Iterate over each member in the list and send a PING request to check
+        # their alive status.
+        # Update membership view accordingly
+        print("\n\nPinging all nodes to update membership view...")
+        for member in doc['viewOfMembership']:
+            member_port = member['address']
+            
+            if(member_port != args.port):
+                client = client_socket.ClientSocket()
+                alive_status_msg = {'topic':'PING'}
+                
+                isSuccessSend = client.sendMessage(port = member_port, 
+                                                   message = json.dumps(alive_status_msg).encode('utf-8'));
+                if not isSuccessSend:
+                    member['isMember'] = False
+                mem_resp = client.recvMessage(4096)
+                doc['viewOfMembership'][j] = member
+                j += 1
+                
+                print(member)
+                client.close()
 
+        collection.update({'_id':doc['_id']},doc)
+        time.sleep(5)
+        
 # update the membership view
 
 # send the updated membership view
