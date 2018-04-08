@@ -17,7 +17,6 @@ class ClientSocket:
         #create an INET, STREAMing socket
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    
     def sendMessage(self, port, message, ip = "127.0.0.1"):
         try:        
             self.client_socket.connect((ip, port))
@@ -28,8 +27,7 @@ class ClientSocket:
         except socket.error:
             print("ERROR: Exception thrown while sending message to "+ip+":"+str(port))
             return False
-            
-    
+
     def recvMessage(self, bytesize):
         recvd_message = self.client_socket.recv(bytesize)
         print("RESPONSE: {} \n\n".format(recvd_message))
