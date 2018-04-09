@@ -24,7 +24,7 @@ import client_socket
 import model
 import utils
 
-parser = argparse.ArgumentParser(description='Group Membership Management');
+parser = argparse.ArgumentParser(description='Group Membership Management')
 
 # Command Line Args
 parser.add_argument('--isCoordinator', type=bool, default=False, help='True if this is the coordinator')
@@ -32,7 +32,7 @@ parser.add_argument('--coordinatorPort', type=int, default=10000, help='Port on 
 parser.add_argument('--port', type=int, help='Run this process on port')
 parser.add_argument('--groupName', type=str, help='Name of the group when creating new coordinator or joining the group')
 
-args = parser.parse_args();
+args = parser.parse_args()
 
 # If coordinator then port and coordinator port is same
 if args.isCoordinator:
@@ -48,11 +48,18 @@ if not args.groupName:
     print("Please provide a group name to join or create. Arg --groupName")
     sys.exit()
 
-coordinatorPort = str(args.coordinatorPort)
+coordinatorPort = args.coordinatorPort
 
-# Host a server
-server = server_socket.ServerSocket(args.port, args.groupName)
-server.start()
+# --------- checking if a port is already running or dead -----------------
+client = client_socket.ClientSocket()
+running = client.chkStatus(args.port)
+
+# ----------- if not args.port is not running, start the server ------------
+if not running:
+    # Host a server
+    server = server_socket.ServerSocket(args.port, args.groupName)
+    server.start()
+
 
 # Initiate database connection
 dbConn = model.PyMongoModel()
@@ -61,74 +68,102 @@ groupList = dbConn.getCollection(str(args.groupName))
 # IF A MEMBER NODE i.e. NOT COORDINATOR
 if not args.isCoordinator:
 
-    collectionSlave = None
-    collectionCoord = None
+    if groupList.find_one() is not None:
+        collectionSlave = None
+        collectionCoord = None
 
-    try:
-        collectionCoord = dbConn.getCollection("process_" + coordinatorPort)
-        collectionSlave = dbConn.getCollection("process_" + str(args.port))
-        docCoord = collectionCoord.find_one()
-        doc = collectionSlave.find_one()
-        gDoc = groupList.find_one()
-        for member in gDoc['viewOfMembership']:
-            isCoord = member['isCoordinator']
-            if isCoord:
-                coordPort = member['address']
+        try:
+            collectionCoord = dbConn.getCollection("process_" + str(coordinatorPort))
+            collectionSlave = dbConn.getCollection("process_" + str(args.port))
+            docCoord = collectionCoord.find_one()
+            doc = collectionSlave.find_one()
+            gDoc = groupList.find_one()
+            for member in gDoc['viewOfMembership']:
+                isCoord = member['isCoordinator']
+                if isCoord:
+                    coordPort = member['address']
+                    coordinatorPort = member['address']
+                    # initiate join request
+                    join_req_msg = json.dumps({'topic': 'JOIN_REQUEST', 'address': args.port,
+                                               'isCoordinator': args.isCoordinator, 'groupName': args.groupName})
+                    client = client_socket.ClientSocket()
+                    client.sendMessage(port=coordPort, message=join_req_msg.encode('utf-8'));
+                    #        print("Request to master sent: {}".format(join_req_msg))
 
-                # initiate join request
-                join_req_msg = json.dumps({'topic': 'JOIN_REQUEST', 'address': args.port, 'isCoordinator': args.isCoordinator})
-                client = client_socket.ClientSocket()
-                client.sendMessage(port=coordPort, message=join_req_msg.encode('utf-8'));
-                #        print("Request to master sent: {}".format(join_req_msg))
+                    join_req_resp = json.loads(client.recvMessage(4096))
+                    #        print("Response from master: {}".format(join_req_resp))
 
-                join_req_resp = json.loads(client.recvMessage(4096))
-                #        print("Response from master: {}".format(join_req_resp))
+                    # If join request approved
+                    if join_req_resp['topic'] == "APPROVED":
 
-                # If join request approved
-                if join_req_resp['topic'] == "APPROVED":
+                        print("\n\nJoin Approved!\n\n")
+                    else:
+                        print("\n\nGroup join request declined by master. Suiciding. Bye!\n\n")
+                        sys.exit()
 
-                    print("\n\nJoin Approved!\n\n")
-                else:
-                    print("\n\nGroup join request declined by master. Suiciding. Bye!\n\n")
-                    sys.exit()
+        except Exception as ex:
+            traceback.print_tb(ex.__traceback__)
+            print("ERROR: Exception thrown when connecting to master.")
+            print("Unable to join group. Suiciding. Bye!")
+            sys.exit()
 
-    except Exception as ex:
-        traceback.print_tb(ex.__traceback__)
-        print("ERROR: Exception thrown when connecting to master.")
-        print("Unable to join group. Suiciding. Bye!")
+        finally:
+            client.close()
+        # Request for initial MEMBERSHIP_VIEW
+        mem_view_msg = json.dumps({'topic':'GIVE_MEMBERSHIP_VIEW'})
+        client = client_socket.ClientSocket()
+        client.sendMessage(port=coordinatorPort, message=mem_view_msg.encode('utf-8'));
+        view_of_membership = client.recvMessage(4096)
+        view_of_membership = json.loads(view_of_membership)
+        collection = dbConn.getCollection("process_" + str(args.port))
+        # insert the view of membership in the database
+        doc = collection.find_one()
+        if not running:
+            doc = {}
+            doc['viewOfMembership'] = view_of_membership['viewOfMembership']
+            utils.insertIfNotPresent(collection, doc)
+        else:
+            for i in view_of_membership['viewOfMembership']:
+                doc['viewOfMembership'].append(i)
+                collection.update({'_id': doc['_id']}, doc)
+                doc = collection.find_one()
+        # client.close()
+
+        time.sleep(5)
+    else:
+        print("No group exist with the given name, Unable to join group")
         sys.exit()
-
-    finally:
-        client.close()
-
-    time.sleep(5)
 
 
 else:
-    collection = dbConn.getCollection("process_" + coordinatorPort)
+    collection = dbConn.getCollection("process_" + str(coordinatorPort))
     groupList = dbConn.getCollection(str(args.groupName))
     doc = collection.find_one()
     groupDoc = groupList.find_one()
     if doc is None:
         doc = {}
         doc['viewOfMembership'] = [
-            {'address': args.coordinatorPort, 'isMember': True, 'key': 'SAMPLE_KEY', 'isCoordinator': args.isCoordinator}]
+            {'groupName': args.groupName,'address': coordinatorPort, 'isMember': True, 'key': 'SAMPLE_KEY',
+             'isCoordinator': args.isCoordinator}
+        ]
         doc = collection.insert_one(doc)
     else:
         collection.delete_one({'_id': doc['_id']})
         doc['viewOfMembership'].append(
-            {'address': coordinatorPort, 'isMember': True, 'key': 'sample', 'isCoordinator': args.isCoordinator})
+            {'groupName': args.groupName, 'address': coordinatorPort, 'isMember': True, 'key': 'SAMPLE_KEY',
+             'isCoordinator': args.isCoordinator})
         doc = collection.update({'_id': doc['_id']}, doc)
     if groupDoc is None:
         groupDoc = {}
         groupDoc['viewOfMembership'] = [
-            {'address': args.coordinatorPort, 'isMember': True, 'key': 'SAMPLE_KEY',
+            {'groupName': args.groupName, 'address': coordinatorPort, 'isMember': True, 'key': 'SAMPLE_KEY',
              'isCoordinator': args.isCoordinator}]
         groupDoc = groupList.insert_one(groupDoc)
     else:
         groupList.delete_one({'_id': groupDoc['_id']})
         groupDoc['viewOfMembership'].append(
-            {'address': coordinatorPort, 'isMember': True, 'key': 'sample', 'isCoordinator': args.isCoordinator})
+            {'groupName': args.groupName, 'address': coordinatorPort, 'isMember': True, 'key': 'SAMPLE_KEY',
+             'isCoordinator': args.isCoordinator})
         groupDoc = groupList.update({'_id': groupDoc['_id']}, groupDoc)
 
 
@@ -162,35 +197,47 @@ while True:
                 if member['isCoordinator']:
                     print("\n \n ------ Coordinator failed ------ highest node will be new Coordinator now------ \n \n")
                     # ---------------- removing dead coordinator from the list of member ---------------------
-                    collection.update({}, {'$pull': {'viewOfMembership': {'address': member_port}}}, True)
+                    collection.update({}, {'$pull': {'viewOfMembership': {'groupName': member['groupName'],
+                                                                          'address': member_port}}}, True)
                     doc = collection.find_one()
                     highestPort = 0
                     for newCoord in doc['viewOfMembership']:
-                        if highestPort < newCoord['address']:
+                        if newCoord['groupName'] == member['groupName'] and highestPort < newCoord['address']:
                             highestPort = newCoord['address']
-                    # ------------------------ assigning highest port as coordinator --------------------------
-                    collection.find_and_modify(query={'viewOfMembership.address': highestPort},
-                                        update={'$set': {'viewOfMembership.$.isCoordinator': True}})
+
+                    # ------------------------ assigning highest port as coordinator --------------------------#
+
+                    collection.find_and_modify(query={'viewOfMembership.groupName': member['groupName'],
+                                                      'viewOfMembership.address': highestPort},
+                                               update={'$set': {'viewOfMembership.$.isCoordinator': True}})
+
                     # ------------------ updating the group list for new coordinator -----------------------
+                    groupList = dbConn.getCollection(member['groupName'])
+                    gDoc = groupList.find_one()
                     if gDoc is not None:
-                        groupList.update({}, {'$pull': {'viewOfMembership': {'address': member_port}}}, True)
+                        groupList.update({}, {'$pull': {'viewOfMembership': {'groupName': member['groupName'],
+                                                                             'address': member_port}}}, True)
                         gDoc = groupList.find_one()
                         for mem in gDoc['viewOfMembership']:
                             if mem['address'] == highestPort:
                                 if not mem['isCoordinator']:
-                                    groupList.find_and_modify(query={'viewOfMembership.address': highestPort},
-                                                               update={
+                                    groupList.find_and_modify(query={'viewOfMembership.groupName': member['groupName'],
+                                                                     'viewOfMembership.address': highestPort},
+                                                              update={
                                                                    '$set': {'viewOfMembership.$.isCoordinator': True}})
                 else:
                     # ----------------case for member failure --------------------
                     print("\n \n----failed node not a coordinator----: ", member_port, "\n \n")
                     print('removing the dead node from the group ', member_port)
                     # ---------------updating self list for node failure ----------------
-                    collection.update({}, {'$pull': {'viewOfMembership': {'address': member_port}}}, True)
+                    collection.update({}, {'$pull': {'viewOfMembership': {'groupName': member['groupName'],
+                                                                          'address': member_port}}}, True)
                     # ---------------updating group list for node failure ----------------
-                    groupList.update({}, {'$pull': {'viewOfMembership': {'address': member_port}}}, True)
-
-
+                    groupList = dbConn.getCollection(member['groupName'])
+                    gDoc = groupList.find_one()
+                    if gDoc is not None:
+                        groupList.update({}, {'$pull': {'viewOfMembership': {'groupName': member['groupName'],
+                                                                             'address': member_port}}}, True)
             else:
                 i = 1
                 mem_resp = client.recvMessage(4096)

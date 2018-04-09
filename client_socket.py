@@ -14,7 +14,7 @@ class ClientSocket:
     host = None
     
     def __init__(self):
-        #create an INET, STREAMing socket
+        # create an INET, STREAMing socket
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     def sendMessage(self, port, message, ip = "127.0.0.1"):
@@ -32,7 +32,15 @@ class ClientSocket:
         recvd_message = self.client_socket.recv(bytesize)
         print("RESPONSE: {} \n\n".format(recvd_message))
         return recvd_message
-        
+
+    def chkStatus(self,port, ip = "127.0.0.1"):
+
+        try:
+            self.client_socket.connect((ip, port))
+            return True
+
+        except socket.error:
+            return False
         
     def close(self):
         self.client_socket.close()
