@@ -29,8 +29,9 @@ if groupDoc is not None:
             collection.update({}, {'$pull': {'viewOfMembership': {'address': args.port}}}, True)
 
     groupCollection.update({}, {'$pull': {'viewOfMembership': {'address': args.port}}}, True)
-    collection.drop()
-
+    # collection.drop()
+    collection = dbConn.getCollection("process_" + str(args.port))
+    collection.update({}, {'$pull': {'viewOfMembership': {'groupName': member['groupName']}}}, True, True)
     print("------- Node left the group successfully -------")
 else:
     print("-----no group found with the given name " + args.groupName + " ------")
